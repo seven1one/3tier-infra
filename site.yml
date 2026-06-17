@@ -1,0 +1,195 @@
+---
+# 3-Tier 폐쇄망 인프라 자동화 플레이북
+
+# 1) 전체 공통 설정
+- name: Common - 모든 서버 공통 설정
+  hosts: all
+  tasks:
+    - name: /etc/hosts 서비스망 매핑
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "10.10.10.11 web01"
+        - "10.10.10.14 web02"
+        - "10.10.10.12 was01"
+        - "10.10.10.15 was02"
+        - "10.10.10.13 db01"
+
+    - name: chrony 클라이언트 설정 (web01 제외)
+      copy:
+        dest: /etc/chrony.conf
+        content: |
+          server web01 iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+      when: inventory_hostname != 'web01'
+      notify: restart chronyd
+
+  handlers:
+    - name: restart chronyd
+      service:
+        name: chronyd
+        state: restarted
+
+# 2) WEB 서버 설정
+- name: WEB - Apache + 로드밸런싱 + 커널튜닝
+  hosts: web
+  tasks:
+    - name: Apache 설치
+      dnf:
+        name: httpd
+        state: present
+
+    - name: Apache 활성화
+      service:
+        name: httpd
+        state: started
+        enabled: yes
+
+    - name: AJP 로드밸런서 설정
+      copy:
+        dest: /etc/httpd/conf.d/ajp.conf
+        content: |
+          <Proxy balancer://wascluster>
+              BalancerMember ajp://was01:8009 route=was01
+              BalancerMember ajp://was02:8009 route=was02
+              ProxySet lbmethod=byrequests
+          </Proxy>
+          ProxyPass /repo !
+          ProxyPass / balancer://wascluster/
+          ProxyPassReverse / balancer://wascluster/
+      notify: restart httpd
+
+    - name: SELinux - httpd 네트워크 연결 허용
+      command: setsebool -P httpd_can_network_connect on
+      changed_when: false
+
+    - name: WEB 커널 튜닝
+      copy:
+        dest: /etc/sysctl.d/99-web-tuning.conf
+        content: |
+          net.ipv4.tcp_max_syn_backlog = 2048
+          net.ipv4.ip_local_port_range = 1024 65000
+      notify: apply sysctl
+
+  handlers:
+    - name: restart httpd
+      service:
+        name: httpd
+        state: restarted
+
+    - name: apply sysctl
+      command: sysctl --system
+
+# 3) WAS 서버 설정
+- name: WAS - Tomcat + JDBC + 커널튜닝
+  hosts: was
+  tasks:
+    - name: Tomcat 및 JDK 설치
+      dnf:
+        name:
+          - java-17-openjdk
+          - java-17-openjdk-devel
+          - tomcat
+          - tomcat-webapps
+          - postgresql-jdbc
+        state: present
+
+    - name: JDBC 드라이버를 Tomcat lib에 복사
+      copy:
+        src: /usr/share/java/postgresql-jdbc.jar
+        dest: /usr/share/tomcat/lib/postgresql-jdbc.jar
+        remote_src: yes
+
+    - name: SCRAM 인증 부품 복사
+      shell: cp $(rpm -ql ongres-scram ongres-scram-client | grep '\.jar$') /usr/share/tomcat/lib/
+      args:
+        creates: /usr/share/tomcat/lib/common.jar
+
+    - name: SELinux - Tomcat DB 연결 허용
+      command: setsebool -P tomcat_can_network_connect_db on
+      changed_when: false
+
+    - name: Tomcat 활성화
+      service:
+        name: tomcat
+        state: started
+        enabled: yes
+
+    - name: WAS 커널 튜닝
+      copy:
+        dest: /etc/sysctl.d/99-was-tuning.conf
+        content: |
+          vm.swappiness = 10
+          vm.max_map_count = 262144
+      notify: apply sysctl
+
+  handlers:
+    - name: apply sysctl
+      command: sysctl --system
+
+# 4) DB 서버 설정
+- name: DB - PostgreSQL + Redis + 커널튜닝
+  hosts: db
+  tasks:
+    - name: PostgreSQL 설치
+      dnf:
+        name: "@postgresql:15/server"
+        state: present
+
+    - name: Redis 설치
+      dnf:
+        name: redis
+        state: present
+
+    - name: PostgreSQL 활성화
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    - name: Redis 외부 바인드 설정
+      lineinfile:
+        path: /etc/redis.conf
+        regexp: '^bind 127.0.0.1'
+        line: 'bind 0.0.0.0'
+      notify: restart redis
+
+    - name: Redis 활성화
+      service:
+        name: redis
+        state: started
+        enabled: yes
+
+    - name: 방화벽 - PostgreSQL
+      command: firewall-cmd --add-service=postgresql --permanent
+      changed_when: false
+
+    - name: 방화벽 - Redis
+      command: firewall-cmd --add-port=6379/tcp --permanent
+      changed_when: false
+
+    - name: 방화벽 적용
+      command: firewall-cmd --reload
+      changed_when: false
+
+    - name: DB 커널 튜닝
+      copy:
+        dest: /etc/sysctl.d/99-db-tuning.conf
+        content: |
+          vm.swappiness = 10
+          vm.dirty_ratio = 10
+          vm.dirty_background_ratio = 5
+      notify: apply sysctl
+
+  handlers:
+    - name: restart redis
+      service:
+        name: redis
+        state: restarted
+
+    - name: apply sysctl
+      command: sysctl --system

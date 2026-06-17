@@ -1,11 +1,8 @@
 ---
-# 3-Tier 폐쇄망 인프라 자동화 플레이북
-
-# 1) 전체 공통 설정
-- name: Common - 모든 서버 공통 설정
+- name: Common
   hosts: all
   tasks:
-    - name: /etc/hosts 서비스망 매핑
+    - name: /etc/hosts
       lineinfile:
         path: /etc/hosts
         line: "{{ item }}"
@@ -17,7 +14,7 @@
         - "10.10.10.15 was02"
         - "10.10.10.13 db01"
 
-    - name: chrony 클라이언트 설정 (web01 제외)
+    - name: chrony client
       copy:
         dest: /etc/chrony.conf
         content: |
@@ -34,22 +31,21 @@
         name: chronyd
         state: restarted
 
-# 2) WEB 서버 설정
-- name: WEB - Apache + 로드밸런싱 + 커널튜닝
+- name: WEB
   hosts: web
   tasks:
-    - name: Apache 설치
+    - name: httpd
       dnf:
         name: httpd
         state: present
 
-    - name: Apache 활성화
+    - name: httpd enable
       service:
         name: httpd
         state: started
         enabled: yes
 
-    - name: AJP 로드밸런서 설정
+    - name: ajp balancer
       copy:
         dest: /etc/httpd/conf.d/ajp.conf
         content: |
@@ -63,11 +59,11 @@
           ProxyPassReverse / balancer://wascluster/
       notify: restart httpd
 
-    - name: SELinux - httpd 네트워크 연결 허용
+    - name: selinux httpd network
       command: setsebool -P httpd_can_network_connect on
       changed_when: false
 
-    - name: WEB 커널 튜닝
+    - name: kernel tuning
       copy:
         dest: /etc/sysctl.d/99-web-tuning.conf
         content: |
@@ -84,11 +80,10 @@
     - name: apply sysctl
       command: sysctl --system
 
-# 3) WAS 서버 설정
-- name: WAS - Tomcat + JDBC + 커널튜닝
+- name: WAS
   hosts: was
   tasks:
-    - name: Tomcat 및 JDK 설치
+    - name: tomcat + jdk
       dnf:
         name:
           - java-17-openjdk
@@ -98,28 +93,28 @@
           - postgresql-jdbc
         state: present
 
-    - name: JDBC 드라이버를 Tomcat lib에 복사
+    - name: jdbc driver
       copy:
         src: /usr/share/java/postgresql-jdbc.jar
         dest: /usr/share/tomcat/lib/postgresql-jdbc.jar
         remote_src: yes
 
-    - name: SCRAM 인증 부품 복사
+    - name: scram jars
       shell: cp $(rpm -ql ongres-scram ongres-scram-client | grep '\.jar$') /usr/share/tomcat/lib/
       args:
         creates: /usr/share/tomcat/lib/common.jar
 
-    - name: SELinux - Tomcat DB 연결 허용
+    - name: selinux tomcat db
       command: setsebool -P tomcat_can_network_connect_db on
       changed_when: false
 
-    - name: Tomcat 활성화
+    - name: tomcat enable
       service:
         name: tomcat
         state: started
         enabled: yes
 
-    - name: WAS 커널 튜닝
+    - name: kernel tuning
       copy:
         dest: /etc/sysctl.d/99-was-tuning.conf
         content: |
@@ -131,52 +126,51 @@
     - name: apply sysctl
       command: sysctl --system
 
-# 4) DB 서버 설정
-- name: DB - PostgreSQL + Redis + 커널튜닝
+- name: DB
   hosts: db
   tasks:
-    - name: PostgreSQL 설치
+    - name: postgresql
       dnf:
         name: "@postgresql:15/server"
         state: present
 
-    - name: Redis 설치
+    - name: redis
       dnf:
         name: redis
         state: present
 
-    - name: PostgreSQL 활성화
+    - name: postgresql enable
       service:
         name: postgresql
         state: started
         enabled: yes
 
-    - name: Redis 외부 바인드 설정
+    - name: redis bind
       lineinfile:
         path: /etc/redis.conf
         regexp: '^bind 127.0.0.1'
         line: 'bind 0.0.0.0'
       notify: restart redis
 
-    - name: Redis 활성화
+    - name: redis enable
       service:
         name: redis
         state: started
         enabled: yes
 
-    - name: 방화벽 - PostgreSQL
+    - name: firewall postgresql
       command: firewall-cmd --add-service=postgresql --permanent
       changed_when: false
 
-    - name: 방화벽 - Redis
+    - name: firewall redis
       command: firewall-cmd --add-port=6379/tcp --permanent
       changed_when: false
 
-    - name: 방화벽 적용
+    - name: firewall reload
       command: firewall-cmd --reload
       changed_when: false
 
-    - name: DB 커널 튜닝
+    - name: kernel tuning
       copy:
         dest: /etc/sysctl.d/99-db-tuning.conf
         content: |

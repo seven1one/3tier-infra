@@ -325,6 +325,45 @@ section p {
   font-size: 16px;
 }
 
+/* Screenshots */
+.screenshot-group {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+
+.screenshot-group h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--heading);
+  margin-bottom: 16px;
+}
+
+.screenshot-group p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.screenshot-group img {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.screenshot-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .screenshot-pair { grid-template-columns: 1fr; }
+}
+
 /* Footer */
 .footer {
   padding: 40px 0;
@@ -558,6 +597,47 @@ section p {
           <span class="issue-step-text"><code>xmllint --noout</code>으로 진단, 누락된 <code>--&gt;</code> 삽입</span>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section>
+    <div class="section-label">Results</div>
+    <h2>실행 결과</h2>
+
+    <div class="screenshot-group">
+      <h3>End-to-End 동작 확인</h3>
+      <p>VIP(192.168.10.110)를 통해 브라우저에서 접속. 사용자 → Apache → Tomcat → PostgreSQL 전 구간이 정상 동작합니다.</p>
+      <img src="img-endtoend.png" alt="End-to-End 야채 표">
+    </div>
+
+    <div class="screenshot-group">
+      <h3>WAS 로드밸런싱</h3>
+      <p>같은 VIP 주소로 새로고침 시 was01과 was02가 번갈아 응답합니다.</p>
+      <div class="screenshot-pair">
+        <img src="img-lb-was01.png" alt="로드밸런싱 was01">
+        <img src="img-lb-was02.png" alt="로드밸런싱 was02">
+      </div>
+    </div>
+
+    <div class="screenshot-group">
+      <h3>keepalived VIP 장애 전환</h3>
+      <p>web01에서 keepalived를 중지하면, VIP(192.168.10.110)가 web02로 자동 전환됩니다.</p>
+      <img src="img-failover-stop.png" alt="keepalived stop" style="margin-bottom: 12px;">
+      <img src="img-failover-vip.png" alt="VIP 전환 확인">
+    </div>
+
+    <div class="screenshot-group">
+      <h3>Ansible 자동화</h3>
+      <p>5대 서버 전체에 플레이북 실행. 모든 서버 failed=0으로 완료되었습니다.</p>
+      <img src="img-ansible.png" alt="Ansible PLAY RECAP">
+    </div>
+
+    <div class="screenshot-group">
+      <h3>Terraform Plan</h3>
+      <p>AWS 인프라 22개 리소스 생성 계획이 검증되었습니다.</p>
+      <img src="img-terraform-top.png" alt="terraform plan 상단" style="margin-bottom: 12px;">
+      <img src="img-terraform.png" alt="terraform plan 결과">
     </div>
   </section>
 
